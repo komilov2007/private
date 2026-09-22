@@ -1,0 +1,11 @@
+{
+  "name": "Rahmatulloh va Nilufar",
+  "short_name": "Suhbat",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf8",
+  "theme_color": "#fffaf8",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

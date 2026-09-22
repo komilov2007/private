@@ -1,0 +1,9 @@
+.next/
+node_modules/
+out/
+build/
+dist/
+.env*.local
+.env.local
+bun.lockb
+*.tsbuildinfo
