@@ -3,6 +3,7 @@
 import { Camera, CameraIcon, Play, RotateCcw, Send, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pauseActiveMedia } from "@/lib/media/playback";
+import { NATIVE_PAUSE_EVENT, permissionDeniedMessage } from "@/lib/native/platform";
 
 export type VideoNoteDraft = { blob: Blob; duration: number; mimeType: string; url: string };
 const TYPES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
@@ -43,7 +44,7 @@ export default function VideoNoteRecorder({ locked, releaseToken, onCancel, onSe
       setError("");
       startRecording(stream);
     } catch {
-      setError("Kamera yoki mikrofon uchun ruxsat berilmadi.");
+      setError(permissionDeniedMessage("camera"));
     }
   // Recorder startup is deliberately read at permission-resolution time.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +82,13 @@ export default function VideoNoteRecorder({ locked, releaseToken, onCancel, onSe
     }, 250);
   }
 
+  // Android app backgrounded: stop into a reviewable draft (never auto-send) and release the
+  // camera. A still-open idle preview is closed entirely.
+  useEffect(() => {
+    const onPause = () => { autoSendRef.current = false; if (recorderRef.current?.state === "recording") recorderRef.current.stop(); else if (streamRef.current) onCancel(); };
+    window.addEventListener(NATIVE_PAUSE_EVENT, onPause);
+    return () => window.removeEventListener(NATIVE_PAUSE_EVENT, onPause);
+  }, [onCancel]);
   useEffect(() => { if(releaseToken>handledRelease.current){handledRelease.current=releaseToken;autoSendRef.current=true;stopRecording();} },[releaseToken]);
 
   function retry() { if (draft) URL.revokeObjectURL(draft.url); draftUrlRef.current="";setDraft(null); setSeconds(0); void openCamera(facing); }

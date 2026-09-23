@@ -8,6 +8,8 @@ import { getIceServers } from "@/lib/calls/ice";
 import { pauseActiveMedia } from "@/lib/media/playback";
 import type { Call, CallStatus, CallType, Profile } from "@/lib/chat/types";
 import Avatar from "@/components/app/avatar";
+import { useBackHandler } from "@/lib/native/back-handler";
+import { NATIVE_PAUSE_EVENT, NATIVE_RESUME_EVENT, permissionDeniedMessage } from "@/lib/native/platform";
 
 type Api = { startCall: (type: CallType) => Promise<void>; activeCall: Call | null; history: Call[]; canCall: boolean; clearCompletedHistory: () => void };
 const CallsContext = createContext<Api>({ startCall: async () => {}, activeCall: null, history: [], canCall: false, clearCompletedHistory: () => {} });
@@ -104,7 +106,7 @@ export default function CallProvider({ userId, children }: { userId: string; chi
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" ? { facingMode: { ideal: "user" } } : false });
       localRef.current = stream; if (localVideoRef.current) localVideoRef.current.srcObject = stream; return true;
     } catch {
-      setError(type === "video" ? "Kamera yoki mikrofonga ruxsat berilmadi." : "Mikrofonga ruxsat berilmadi."); return false;
+      setError(permissionDeniedMessage(type === "video" ? "camera" : "microphone")); return false;
     }
   }
 
@@ -171,6 +173,20 @@ export default function CallProvider({ userId, children }: { userId: string; chi
 
   useEffect(() => { if(!call||call.status!=="ringing")return; const remaining=Math.max(0,40000-(Date.now()-new Date(call.created_at).getTime())); const timer=setTimeout(()=>void supabase.rpc("expire_private_call",{p_call_id:call.id}),remaining); return()=>clearTimeout(timer); },[call,supabase]);
   useEffect(() => { if(phase!=="connected")return; const timer=setInterval(()=>setSeconds((v)=>v+1),1000); return()=>clearInterval(timer); },[phase]);
+  // Android Back must not navigate away mid-call: each page mounts its own provider, so leaving
+  // the page would tear the call down. The overlay owns the screen until the call ends.
+  useBackHandler(Boolean(call), () => {});
+  // Android blocks camera capture for backgrounded apps. Blank the outgoing video instead of
+  // freezing it, and restore on return. Background calling needs a native foreground service.
+  const callId = call?.id; const callType = call?.type;
+  useEffect(() => {
+    if (!callId || callType !== "video") return;
+    let suspended: MediaStreamTrack[] = [];
+    const onPause = () => { suspended = localRef.current?.getVideoTracks().filter((track) => track.enabled) ?? []; suspended.forEach((track) => { track.enabled = false; }); };
+    const onResume = () => { suspended.forEach((track) => { if (track.readyState === "live") track.enabled = true; }); suspended = []; };
+    window.addEventListener(NATIVE_PAUSE_EVENT, onPause); window.addEventListener(NATIVE_RESUME_EVENT, onResume);
+    return () => { window.removeEventListener(NATIVE_PAUSE_EVENT, onPause); window.removeEventListener(NATIVE_RESUME_EVENT, onResume); };
+  }, [callId, callType]);
   useEffect(() => { if(localVideoRef.current) localVideoRef.current.srcObject=localRef.current; if(remoteVideoRef.current) remoteVideoRef.current.srcObject=remoteRef.current; if(remoteAudioRef.current) remoteAudioRef.current.srcObject=remoteRef.current; },[call,phase]);
 
   const incoming=call?.callee_id===userId&&call.status==="ringing";

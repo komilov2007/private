@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Private</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fffaf8; --text: #302126; --muted: #856b73; --accent: #c85372; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #140b11; --text: #fff4f7; --muted: #c1a0aa; --accent: #ef789c; } }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+    main { display: flex; min-height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); text-align: center; }
+    h1 { margin: .5rem 0 0; font-size: 1.25rem; }
+    p { margin: 0; max-width: 20rem; color: var(--muted); line-height: 1.5; }
+    button { margin-top: 1rem; min-height: 2.75rem; border: 0; border-radius: .875rem; padding: .65rem 1.4rem; background: var(--accent); color: #fff; font: inherit; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg width="72" height="72" viewBox="0 0 512 512" aria-hidden="true"><path d="M256 370s-126-74-126-160c0-46 34-78 76-78 25 0 42 12 50 28 8-16 25-28 50-28 42 0 76 32 76 78 0 86-126 160-126 160z" fill="currentColor" opacity=".35"/></svg>
+    <h1>Internet aloqasi yo'q</h1>
+    <p>Ilovani ochib bo'lmadi. Internetga ulanganingizni tekshirib, qayta urinib ko'ring.</p>
+    <!-- Must match server.url in capacitor.config.ts. -->
+    <button type="button" onclick="location.replace('https://private-tmi7.vercel.app/')">Qayta urinish</button>
+  </main>
+  <script>window.addEventListener("online", function () { location.replace("https://private-tmi7.vercel.app/"); });</script>
+</body>
+</html>

@@ -126,3 +126,5 @@ article[data-selected]{border-radius:1rem;background:color-mix(in srgb,var(--acc
 .system-pill{border-radius:999px;background:var(--surface);border:1px solid var(--border);padding:.3rem .8rem;text-align:center;font-size:.72rem;font-weight:550;color:var(--muted);backdrop-filter:blur(10px)}
 .toast{position:absolute;left:50%;bottom:6.5rem;z-index:40;transform:translateX(-50%);border-radius:999px;background:var(--text);color:var(--app-bg);padding:.55rem 1rem;font-size:.8rem;font-weight:600;box-shadow:var(--shadow);animation:fade-in 200ms ease both;white-space:nowrap}
 @media(min-width:800px){.bottom-sheet{align-self:center;border-radius:1.25rem;padding-bottom:1rem}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+/* Android shell only (NativeShell adds the class): no rubber-band/glow, no tap flash. */
+html.native-app,html.native-app body{overscroll-behavior:none}html.native-app{-webkit-tap-highlight-color:transparent}

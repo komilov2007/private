@@ -14,6 +14,7 @@ import VoiceRecorder, { type VoiceDraft } from "./voice-recorder";
 import VideoNoteRecorder, { type VideoNoteDraft } from "./video-note-recorder";
 import { useRecordingGesture } from "@/lib/media/use-recording-gesture";
 import { useCalls } from "@/components/calls/call-provider";
+import { useBackHandler } from "@/lib/native/back-handler";
 
 export type OutgoingMessage = { type: "text" | "sticker"; content: string; replyTo: Message | null };
 
@@ -51,6 +52,8 @@ export default function MessageComposer({ userId, conversationId, replyTo, profi
   useEffect(() => { if(!activeCall)return;const timer=window.setTimeout(()=>{setRecording(false);setVideoRecording(false);setRecordingLocked(false);},0);return()=>clearTimeout(timer); }, [activeCall]);
 
   function closeRecorder() { setRecording(false); setVideoRecording(false); setRecordingLocked(false); }
+  useBackHandler(panel !== "none", () => setPanel("none"));
+  useBackHandler(recording || videoRecording, closeRecorder);
   const recordingGesture = useRecordingGesture({
     disabled: uploading || Boolean(activeCall) || hasText,
     onTap: () => { const next=recordMode==="voice"?"video":"voice";setRecordMode(next);try{localStorage.setItem("composer-record-mode",next);}catch{} },

@@ -7,6 +7,7 @@ import { dateLabel, shouldGroup } from "@/lib/chat/helpers";
 import MessageBubble from "./message-bubble";
 import DateSeparator from "./date-separator";
 import MessageActionSheet from "./message-action-sheet";
+import { useBackHandler } from "@/lib/native/back-handler";
 
 type Props = {
   userId: string;
@@ -38,6 +39,7 @@ export default function MessageList({ userId, me, other, otherName, messages, lo
   const [newCount, setNewCount] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
   const selectionMode = selectedIds.size > 0;
+  useBackHandler(Boolean(menuId), () => setMenuId(null));
   const menuMessage = menuId ? messages.find((message) => message.id === menuId && !message.deleted_at && !message.pending) ?? null : null;
   const profiles: Record<string, Profile | null> = {
     ...(me ? { [me.id]: me } : {}),

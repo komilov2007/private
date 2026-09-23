@@ -19,6 +19,7 @@ import ContactDetails from "./contact-details";
 import MessageSelectionBar from "./message-selection-bar";
 import { useCalls } from "@/components/calls/call-provider";
 import { pauseActiveMedia } from "@/lib/media/playback";
+import { useBackHandler } from "@/lib/native/back-handler";
 
 type Props = { userId: string; identity: UserIdentity };
 type ViewerState = { src: string; name: string; type: "image" | "video" } | null;
@@ -494,6 +495,11 @@ export default function ChatShell({ userId, identity }: Props) {
     }
     if (status === "accepted") setSharedBackground({ id: current.background_id, at: Date.now() });
   }
+
+  useBackHandler(selectedIds.size > 0, exitSelection);
+  useBackHandler(Boolean(viewer), () => setViewer(null));
+  useBackHandler(settingsOpen, () => setSettingsOpen(false));
+  useBackHandler(detailsOpen, () => setDetailsOpen(false));
 
   const activeBackground = localBackground && localBackground.at > sharedBackground.at ? localBackground.id : sharedBackground.id ?? localBackground?.id ?? null;
   const backgroundCss = wallpaperCss(activeBackground);

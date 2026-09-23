@@ -12,6 +12,7 @@ import { useConversationRealtime } from "@/lib/realtime/use-conversation-realtim
 import { logSupabaseError } from "@/lib/supabase/errors";
 import StoryViewer from "./story-viewer";
 import StoryCreator from "./story-creator";
+import { useBackHandler } from "@/lib/native/back-handler";
 
 type Props = {
   userId: string;
@@ -88,6 +89,9 @@ export default function StoryTray({ userId, conversationId, me, other, otherName
     setDraft(null);
     setDraftError("");
   }
+
+  useBackHandler(Boolean(viewing), () => setViewing(null));
+  useBackHandler(Boolean(draft), () => { if (!busy) closeDraft(); });
 
   async function publish(caption: string) {
     if (!draft || !conversationId) return;

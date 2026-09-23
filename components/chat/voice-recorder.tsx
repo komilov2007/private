@@ -3,6 +3,7 @@
 import { Mic, Pause, Play, Send, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { pauseActiveMedia, playExclusive } from "@/lib/media/playback";
+import { NATIVE_PAUSE_EVENT, permissionDeniedMessage } from "@/lib/native/platform";
 
 export type VoiceDraft = { blob: Blob; duration: number; mimeType: string; url: string; waveform: number[] };
 const TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -59,12 +60,14 @@ export default function VoiceRecorder({ locked, releaseToken, onCancel, onSend }
         setDraft(next); setSeconds(duration); setWaveform(compact); if (autoSendRef.current) void onSend(next);
       };
       recorder.start(200); if(autoSendRef.current)queueMicrotask(()=>recorder.state==="recording"&&recorder.stop()); timer = setInterval(() => setSeconds(Math.floor((Date.now()-startedRef.current)/1000)),250);
-    }).catch(() => setError("Mikrofonga ruxsat berilmadi."));
+    }).catch(() => setError(permissionDeniedMessage("microphone")));
     return () => { cancelled=true;if(timer)clearInterval(timer);cancelAnimationFrame(frame);if(recorderRef.current?.state==="recording"||recorderRef.current?.state==="paused")recorderRef.current.stop();streamRef.current?.getTracks().forEach((track)=>track.stop());if(draftUrlRef.current)URL.revokeObjectURL(draftUrlRef.current);void context?.close(); };
   // One capture session per mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Android app backgrounded: never keep the mic open or auto-send. Stop into a reviewable draft.
+  useEffect(() => { const onPause=()=>{autoSendRef.current=false;const recorder=recorderRef.current;if(recorder?.state==="recording"||recorder?.state==="paused")recorder.stop();};window.addEventListener(NATIVE_PAUSE_EVENT,onPause);return()=>window.removeEventListener(NATIVE_PAUSE_EVENT,onPause); },[]);
   useEffect(() => { if(releaseToken>handledRelease.current){handledRelease.current=releaseToken;autoSendRef.current=true;const recorder=recorderRef.current;if(recorder?.state==="recording"||recorder?.state==="paused")recorder.stop();} },[releaseToken]);
   const time = `${String(Math.floor(seconds/60)).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`;
   return <section className="recording-panel mx-3 mb-2" aria-label="Ovoz yozish">

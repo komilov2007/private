@@ -2,6 +2,7 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { normalizeMessage } from "@/lib/chat/messages";
 import type { Message, MessageRead } from "@/lib/chat/types";
 import { devLog } from "@/lib/supabase/errors";
+import { NATIVE_RESUME_EVENT } from "@/lib/native/platform";
 
 /**
  * One shared realtime hub per (user, conversation), reused by Home and Chat.
@@ -218,11 +219,15 @@ async function start(hub: Hub) {
     } else touchLastSeen(hub);
   };
   const onOnline = () => emit(hub, "onResync");
+  // Android shell resume: WebView visibility events are not guaranteed after a long background.
+  const onNativeResume = () => { touchLastSeen(hub); emit(hub, "onResync"); };
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("online", onOnline);
+  window.addEventListener(NATIVE_RESUME_EVENT, onNativeResume);
   hub.cleanupDom = () => {
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("online", onOnline);
+    window.removeEventListener(NATIVE_RESUME_EVENT, onNativeResume);
   };
   touchLastSeen(hub);
 }
