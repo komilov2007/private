@@ -1,7 +1,7 @@
 "use client";
 
-import { Camera, ImageIcon, Laugh, Loader2, Mic, Plus, Send, Sticker, Video, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Camera, CircleUserRound, ImageIcon, Laugh, Loader2, Mic, Plus, Send, Sticker, Video, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CHAT_BUCKET, IMAGE_TYPES, MAX_IMAGE_SIZE, MAX_VIDEO_SIZE, VIDEO_TYPES } from "@/lib/chat/constants";
 import { safeFileName } from "@/lib/chat/helpers";
@@ -11,6 +11,9 @@ import EmojiPicker from "./emoji-picker";
 import StickerPicker from "./sticker-picker";
 import ReplyPreview from "./reply-preview";
 import VoiceRecorder, { type VoiceDraft } from "./voice-recorder";
+import VideoNoteRecorder, { type VideoNoteDraft } from "./video-note-recorder";
+import { useRecordingGesture } from "@/lib/media/use-recording-gesture";
+import { useCalls } from "@/components/calls/call-provider";
 
 export type OutgoingMessage = { type: "text" | "sticker"; content: string; replyTo: Message | null };
 
@@ -34,10 +37,28 @@ export default function MessageComposer({ userId, conversationId, replyTo, profi
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [text, setText] = useState("");
+  const hasText = Boolean(text.trim());
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [panel, setPanel] = useState<"none" | "emoji" | "stickers" | "attach">("none");
   const [recording, setRecording] = useState(false);
+  const [videoRecording, setVideoRecording] = useState(false);
+  const [recordingLocked, setRecordingLocked] = useState(false);
+  const [releaseToken, setReleaseToken] = useState(0);
+  const [recordMode, setRecordMode] = useState<"voice" | "video">(() => { if(typeof window==="undefined")return "voice";try{return localStorage.getItem("composer-record-mode")==="video"?"video":"voice";}catch{return "voice";} });
+  const { activeCall } = useCalls();
+
+  useEffect(() => { if(!activeCall)return;const timer=window.setTimeout(()=>{setRecording(false);setVideoRecording(false);setRecordingLocked(false);},0);return()=>clearTimeout(timer); }, [activeCall]);
+
+  function closeRecorder() { setRecording(false); setVideoRecording(false); setRecordingLocked(false); }
+  const recordingGesture = useRecordingGesture({
+    disabled: uploading || Boolean(activeCall) || hasText,
+    onTap: () => { const next=recordMode==="voice"?"video":"voice";setRecordMode(next);try{localStorage.setItem("composer-record-mode",next);}catch{} },
+    onStart: () => { setPanel("none");setRecordingLocked(false);if(recordMode==="voice")setRecording(true);else setVideoRecording(true); },
+    onRelease: () => setReleaseToken((value)=>value+1),
+    onCancel: closeRecorder,
+    onLock: () => setRecordingLocked(true),
+  });
 
   function stopTyping() {
     if (typingStopRef.current) clearTimeout(typingStopRef.current);
@@ -105,7 +126,7 @@ export default function MessageComposer({ userId, conversationId, replyTo, profi
       setUploading(false);
       return setError("Ovozli xabar yuklanmadi");
     }
-    const { data: message, error: messageError } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: userId, type: "voice", reply_to_id: replyTo?.id ?? null }).select("*").single();
+    const { data: message, error: messageError } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: userId, type: "voice", content: JSON.stringify({ waveform: draft.waveform.map((value)=>Math.round(value*100)/100) }), reply_to_id: replyTo?.id ?? null }).select("*").single();
     if (messageError || !message) {
       logSupabaseError("[chat] insert voice message", messageError);
       await supabase.storage.from(CHAT_BUCKET).remove([path]);
@@ -116,18 +137,36 @@ export default function MessageComposer({ userId, conversationId, replyTo, profi
     setUploading(false);
     if (attachment.error) {
       logSupabaseError("[chat] insert voice attachment", attachment.error);
+      await Promise.all([supabase.storage.from(CHAT_BUCKET).remove([path]),supabase.from("messages").update({deleted_at:new Date().toISOString()}).eq("id",message.id)]);
       return setError("Ovozli xabar saqlanmadi");
     }
-    setRecording(false);
+    closeRecorder();
     onSent(message as Message);
   }
 
-  const hasText = Boolean(text.trim());
+  async function sendVideoNote(draft: VideoNoteDraft) {
+    if (!conversationId) return;
+    setUploading(true); setError("");
+    const extension = draft.mimeType.includes("mp4") ? "mp4" : "webm";
+    const path = `${conversationId}/${userId}/video-notes/${crypto.randomUUID()}.${extension}`;
+    const upload = await supabase.storage.from(CHAT_BUCKET).upload(path, draft.blob, { contentType: draft.mimeType, upsert: false });
+    if (upload.error) { console.error("[chat] upload video note", { message: upload.error.message }); setUploading(false); return setError("Video xabarni yuborib bo'lmadi"); }
+    const { data: message, error: messageError } = await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: userId, type: "video_note", reply_to_id: replyTo?.id ?? null }).select("*").single();
+    if (messageError || !message) {
+      logSupabaseError("[chat] insert video note", messageError); await supabase.storage.from(CHAT_BUCKET).remove([path]); setUploading(false); return setError("Video xabarni yuborib bo'lmadi");
+    }
+    const attachment = await supabase.from("message_attachments").insert({ message_id: message.id, storage_path: path, file_name: "Video xabar", mime_type: draft.mimeType, file_size: draft.blob.size, duration: draft.duration });
+    setUploading(false);
+    if (attachment.error) { logSupabaseError("[chat] insert video note attachment", attachment.error); await Promise.all([supabase.storage.from(CHAT_BUCKET).remove([path]),supabase.from("messages").update({deleted_at:new Date().toISOString()}).eq("id",message.id)]); return setError("Video xabarni saqlab bo'lmadi"); }
+    closeRecorder(); onSent(message as Message);
+  }
 
   return (
     <footer className="composer relative z-20 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2">
       {replyTo ? <ReplyPreview message={replyTo} profile={profiles[replyTo.sender_id] ?? null} onCancel={onCancelReply} /> : null}
-      {recording ? <VoiceRecorder onCancel={() => setRecording(false)} onSend={sendVoice} /> : null}
+      {recording ? <VoiceRecorder locked={recordingLocked} releaseToken={releaseToken} onCancel={closeRecorder} onSend={sendVoice} /> : null}
+      {videoRecording ? <VideoNoteRecorder locked={recordingLocked} releaseToken={releaseToken} onCancel={closeRecorder} onSend={sendVideoNote} /> : null}
+      {recordingGesture.progress.active && !recordingLocked ? <div className="recording-gesture-hint"><span style={{opacity:.45+.55*recordingGesture.progress.cancel}}>Bekor qilish uchun suring</span><span style={{opacity:.45+.55*recordingGesture.progress.lock}}>Qulflash uchun yuqoriga</span></div> : null}
       {error ? (
         <p className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-[var(--danger)]">
           <span>{error}. Qayta urinib ko&apos;ring.</span>
@@ -176,12 +215,13 @@ export default function MessageComposer({ userId, conversationId, replyTo, profi
         </div>
         <button
           type="button"
-          disabled={uploading && !hasText}
-          onClick={() => (hasText ? sendText() : setRecording(true))}
-          aria-label={hasText ? "Yuborish" : "Ovoz yozish"}
+          disabled={(uploading && !hasText) || Boolean(activeCall)}
+          onClick={hasText ? sendText : undefined}
+          {...(!hasText ? recordingGesture.handlers : {})}
+          aria-label={hasText ? "Yuborish" : activeCall ? "Qo'ng'iroq vaqtida yozib bo'lmaydi" : recordMode === "voice" ? "Ovoz yozish uchun bosib turing, video xabar uchun bosing" : "Video xabar yozish uchun bosib turing, ovoz uchun bosing"}
           className="send-button"
         >
-          {hasText ? <Send size={19} /> : <Mic size={20} />}
+          {hasText ? <Send size={19} /> : recordMode === "voice" ? <Mic size={20} /> : <CircleUserRound size={20} />}
         </button>
       </div>
       {uploading ? <p className="muted mt-1 flex items-center justify-center gap-1.5 text-[11px]"><Video size={12} /> Yuklanmoqda…</p> : null}

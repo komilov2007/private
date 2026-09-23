@@ -75,12 +75,20 @@
 .composer{background:var(--surface);border-top:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
 .composer-field{border-radius:1.4rem;border:1px solid var(--border);background:var(--surface-elevated)}.composer-field:focus-within{border-color:var(--accent)}
 .send-button{display:grid;width:2.75rem;height:2.75rem;flex:none;place-items:center;border-radius:999px;background:var(--accent);color:#fff;box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 35%,transparent);transition:transform 160ms ease}.send-button:active{transform:scale(.92)}.send-button:disabled{opacity:.5}
+.recording-panel{border:1px solid var(--border);border-radius:1rem;background:var(--surface-solid);padding:.65rem;box-shadow:var(--shadow)}
+.recording-gesture-hint{display:flex;justify-content:space-between;gap:1rem;padding:.1rem 1.25rem .45rem;color:var(--muted);font-size:.7rem;font-weight:650;pointer-events:none}
+.voice-waveform i,.voice-player-wave i{width:3px;flex:1;border-radius:999px;background:color-mix(in srgb,currentColor 28%,transparent)}
+.voice-waveform i{background:var(--accent)}.voice-bar-played{background:currentColor!important}
+.voice-seek{cursor:pointer;opacity:0;touch-action:none}
 .bubble{position:relative;border-radius:1.15rem;padding:.45rem .75rem .35rem;box-shadow:0 1px 2px color-mix(in srgb,var(--text) 10%,transparent)}
 .bubble-mine{background:var(--sent);color:var(--sent-text);border-bottom-right-radius:.35rem}
 .bubble-theirs{background:var(--received);color:var(--received-text);border-bottom-left-radius:.35rem}
 .bubble-mine.bubble-grouped{border-top-right-radius:.45rem}.bubble-theirs.bubble-grouped{border-top-left-radius:.45rem}
 .bubble-sticker{background:transparent;box-shadow:none;padding:.15rem}
 .reply-quote{display:block;width:100%;margin:.1rem 0 .35rem;border-left:3px solid currentColor;border-radius:.6rem;background:color-mix(in srgb,currentColor 10%,transparent);padding:.35rem .6rem;text-align:left;font-size:.75rem}
+.message-highlight .bubble{animation:reply-highlight 1.35s ease}
+@keyframes reply-highlight{20%,55%{box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 48%,transparent)}100%{box-shadow:0 1px 2px color-mix(in srgb,var(--text) 10%,transparent)}}
+@media(prefers-reduced-motion:reduce){.message-enter,.message-highlight .bubble{animation:none!important}.bubble{transition:none!important}}
 .message-actions{display:flex;gap:.15rem;opacity:0;max-height:0;overflow:hidden;transition:opacity 160ms ease}
 .group:hover .message-actions,.group:focus-within .message-actions,.group:active .message-actions{opacity:1;max-height:2.5rem;margin-top:.1rem}
 /* Message menu: subtle ••• beside the bubble (44px hit area, small visual). */
@@ -89,9 +97,18 @@
 .message-menu-trigger:hover,.message-menu-trigger:focus-visible,.message-menu-trigger[data-selected],article:active .message-menu-trigger{opacity:1;color:var(--accent)}
 .message-menu-trigger:hover>span,.message-menu-trigger[data-selected]>span{background:var(--accent-soft)}
 article[data-selected] .bubble{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 45%,transparent)}
+.message-selection-target{position:absolute;inset:-.15rem 0;z-index:5;min-height:2.75rem;touch-action:pan-y}
+.message-selection-target:disabled{cursor:not-allowed}
+.message-selection-check{position:absolute;z-index:6;top:50%;left:.15rem;display:grid;width:1.35rem;height:1.35rem;place-items:center;transform:translateY(-50%);border-radius:999px;background:var(--accent);color:white;box-shadow:0 2px 8px color-mix(in srgb,var(--accent) 35%,transparent);pointer-events:none}
+article[data-selected]{border-radius:1rem;background:color-mix(in srgb,var(--accent) 12%,transparent)}
 @media(hover:hover){.message-menu-trigger{opacity:0}.group:hover .message-menu-trigger{opacity:.7}}
 /* Touch devices: actions live in the sheet; no inline button row, no OS callout on long press. */
 @media(hover:none){.message-actions{display:none}.bubble{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}}
+
+.call-overlay{position:fixed;inset:0;z-index:100;display:flex;min-height:100dvh;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;background:#101218;color:white;padding:max(1rem,env(safe-area-inset-top)) max(1rem,env(safe-area-inset-right)) max(1rem,env(safe-area-inset-bottom)) max(1rem,env(safe-area-inset-left))}
+.call-content{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:.65rem;text-align:center}.call-content h2{font-size:1.5rem;font-weight:700}.call-content p{color:#cbd5e1}
+.call-controls{position:absolute;z-index:3;bottom:max(1.5rem,env(safe-area-inset-bottom));display:flex;gap:1rem}.call-button{display:grid;height:3.5rem;width:3.5rem;place-items:center;border-radius:50%;background:rgba(255,255,255,.18);backdrop-filter:blur(14px)}.call-button.accept{background:#22c55e}.call-button.end{background:#ef4444}
+.call-remote-video{position:absolute;inset:0;height:100%;width:100%;object-fit:cover}.call-local-video{position:absolute;right:max(1rem,env(safe-area-inset-right));top:max(1rem,env(safe-area-inset-top));z-index:3;aspect-ratio:3/4;width:min(28vw,10rem);border-radius:.75rem;background:#000;object-fit:cover;box-shadow:0 8px 30px #0008}
 
 .action-sheet{padding:0 .75rem max(.75rem,env(safe-area-inset-bottom));transition:transform 180ms ease}
 .sheet-backdrop[data-closing]{animation:fade-out 180ms ease both}

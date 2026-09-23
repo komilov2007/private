@@ -22,7 +22,7 @@ export type HubStatus = "connecting" | "live" | "reconnecting" | "error";
 export type HubListener = {
   onMessageInsert?: (message: Message) => void;
   onMessageUpdate?: (message: Message) => void;
-  onMessageDelete?: (id: string) => void;
+  onMessageDeleteBatch?: (ids: string[]) => void;
   onRead?: (read: MessageRead) => void;
   onTyping?: (typing: boolean) => void;
   onPresence?: (otherOnline: boolean) => void;
@@ -33,6 +33,7 @@ export type HubListener = {
   onStoriesChanged?: () => void;
   onProposal?: (row: Record<string, unknown>) => void;
   onSettings?: (row: Record<string, unknown>) => void;
+  onHistoryClear?: (row: Record<string, unknown>) => void;
 };
 
 type Hub = {
@@ -53,6 +54,8 @@ type Hub = {
   typingState: boolean;
   disposed: boolean;
   cleanupDom: (() => void) | null;
+  deleteQueue: Set<string>;
+  deleteTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const hubs = new Map<string, Hub>();
@@ -110,7 +113,11 @@ async function start(hub: Hub) {
     .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
       if (payload.eventType === "DELETE") {
         const id = (payload.old as { id?: string })?.id;
-        if (id) emit(hub, "onMessageDelete", String(id));
+        if (id) hub.deleteQueue.add(String(id));
+        if (!hub.deleteTimer) hub.deleteTimer = setTimeout(() => {
+          const ids = [...hub.deleteQueue]; hub.deleteQueue.clear(); hub.deleteTimer = null;
+          if (ids.length) emit(hub, "onMessageDeleteBatch", ids);
+        }, 50);
         return;
       }
       const row = normalizeMessage(payload.new as Record<string, unknown>);
@@ -192,6 +199,10 @@ async function start(hub: Hub) {
       const row = payload.new as Record<string, unknown>;
       if (row?.conversation_id === conversationId) emit(hub, "onSettings", row);
     })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, (payload) => {
+      const row = payload.new as Record<string, unknown>;
+      if (row?.id === conversationId && row.history_cleared_at) emit(hub, "onHistoryClear", row);
+    })
     .on("system", {}, (payload: { status?: string; extension?: string; message?: string }) => {
       if (payload?.extension === "postgres_changes" && payload.status !== "ok") {
         console.warn("[realtime] feature tables unavailable (is migration 002 applied?)", { message: payload.message ?? null });
@@ -221,6 +232,7 @@ function teardown(hub: Hub) {
   hubs.delete(hub.key);
   hub.cleanupDom?.();
   if (hub.typingTimer) clearTimeout(hub.typingTimer);
+  if (hub.deleteTimer) clearTimeout(hub.deleteTimer);
   touchLastSeen(hub);
   devLog("[realtime] removing channels for conversation:", hub.conversationId);
   void hub.live?.untrack();
@@ -239,7 +251,7 @@ export function joinConversation(supabase: SupabaseClient, conversationId: strin
       listeners: new Set(), channels: [], live: null,
       status: "connecting", wasLive: false, otherOnline: false, otherTyping: false,
       typingTimer: null, teardownTimer: null, lastTypingSent: 0, typingState: false,
-      disposed: false, cleanupDom: null,
+      disposed: false, cleanupDom: null, deleteQueue: new Set(), deleteTimer: null,
     };
     hubs.set(key, hub);
     void start(hub);

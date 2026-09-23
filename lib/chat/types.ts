@@ -1,4 +1,12 @@
-export type MessageType = "text" | "image" | "video" | "sticker" | "voice" | "system";
+export type MessageType = "text" | "image" | "video" | "video_note" | "sticker" | "voice" | "system";
+
+export type CallType = "audio" | "video";
+export type CallStatus = "ringing" | "accepted" | "declined" | "missed" | "cancelled" | "ended" | "failed";
+export type Call = {
+  id: string; conversation_id: string; caller_id: string; callee_id: string;
+  type: CallType; status: CallStatus; started_at: string; answered_at: string | null;
+  ended_at: string | null; created_at: string; updated_at: string;
+};
 
 export type Profile = {
   id: string;

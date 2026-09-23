@@ -25,7 +25,7 @@ export function useConversationRealtime(supabase: SupabaseClient, conversationId
     const proxy: HubListener = {
       onMessageInsert: (message) => listenerRef.current.onMessageInsert?.(message),
       onMessageUpdate: (message) => listenerRef.current.onMessageUpdate?.(message),
-      onMessageDelete: (id) => listenerRef.current.onMessageDelete?.(id),
+      onMessageDeleteBatch: (ids) => listenerRef.current.onMessageDeleteBatch?.(ids),
       onRead: (read) => listenerRef.current.onRead?.(read),
       onTyping: (value) => {
         setTyping(value);
@@ -44,6 +44,7 @@ export function useConversationRealtime(supabase: SupabaseClient, conversationId
       onStoriesChanged: () => listenerRef.current.onStoriesChanged?.(),
       onProposal: (row) => listenerRef.current.onProposal?.(row),
       onSettings: (row) => listenerRef.current.onSettings?.(row),
+      onHistoryClear: (row) => listenerRef.current.onHistoryClear?.(row),
     };
     const handle = joinConversation(supabase, conversationId, userId, proxy);
     handleRef.current = handle;

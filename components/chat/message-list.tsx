@@ -19,21 +19,25 @@ type Props = {
   onRetryLoad: () => void;
   olderLoading: boolean;
   hasOlder: boolean;
-  onLoadOlder: () => void;
+  onLoadOlder: () => Promise<void>;
+  onNavigateReply: (messageId: string) => Promise<void>;
   onReply: (message: Message) => void;
   onDelete: (message: Message) => void;
+  selectedIds: Set<string>;
+  onSelect: (message: Message) => void;
   onRetry: (message: Message) => void;
   onNotice: (text: string) => void;
   onOpenMedia: (viewer: { src: string; name: string; type: "image" | "video" }) => void;
 };
 
-export default function MessageList({ userId, me, other, otherName, messages, loading, loadError, onRetryLoad, olderLoading, hasOlder, onLoadOlder, onReply, onDelete, onRetry, onNotice, onOpenMedia }: Props) {
+export default function MessageList({ userId, me, other, otherName, messages, loading, loadError, onRetryLoad, olderLoading, hasOlder, onLoadOlder, onNavigateReply, onReply, onDelete, selectedIds, onSelect, onRetry, onNotice, onOpenMedia }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const previousLast = useRef<string | undefined>(undefined);
   const previousCount = useRef(0);
   const nearBottomRef = useRef(true);
   const [newCount, setNewCount] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const selectionMode = selectedIds.size > 0;
   const menuMessage = menuId ? messages.find((message) => message.id === menuId && !message.deleted_at && !message.pending) ?? null : null;
   const profiles: Record<string, Profile | null> = {
     ...(me ? { [me.id]: me } : {}),
@@ -56,13 +60,34 @@ export default function MessageList({ userId, me, other, otherName, messages, lo
     previousCount.current = messages.length;
   }, [messages, userId]);
 
+  async function loadOlderAnchored() {
+    const el = ref.current;
+    if (!el || olderLoading || !hasOlder) return;
+    const oldHeight = el.scrollHeight;
+    const oldTop = el.scrollTop;
+    await onLoadOlder();
+    requestAnimationFrame(() => {
+      if (ref.current) ref.current.scrollTop = oldTop + ref.current.scrollHeight - oldHeight;
+    });
+  }
+
+  async function navigateReply(messageId: string) {
+    if (!document.getElementById(`message-${messageId}`)) await onNavigateReply(messageId);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`message-${messageId}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.classList.add("message-highlight");
+      window.setTimeout(() => target?.classList.remove("message-highlight"), 1400);
+    });
+  }
+
   function onScroll() {
     const el = ref.current;
     if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     nearBottomRef.current = near;
     if (near && newCount) setNewCount(0);
-    if (el.scrollTop < 120 && hasOlder && !olderLoading) onLoadOlder();
+    if (el.scrollTop < 120 && hasOlder && !olderLoading) void loadOlderAnchored();
   }
 
   return (
@@ -99,10 +124,13 @@ export default function MessageList({ userId, me, other, otherName, messages, lo
                   grouped={grouped}
                   profiles={profiles}
                   onReply={() => onReply(message)}
+                  onNavigateReply={(id) => void navigateReply(id)}
                   onDelete={() => onDelete(message)}
                   onRetry={() => onRetry(message)}
                   onOpenMenu={() => setMenuId(message.id)}
-                  selected={menuMessage?.id === message.id}
+                  onSelect={() => onSelect(message)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(message.id)}
                   onOpenMedia={onOpenMedia}
                 />
               </div>
@@ -124,6 +152,7 @@ export default function MessageList({ userId, me, other, otherName, messages, lo
           onClose={() => setMenuId(null)}
           onReply={() => onReply(menuMessage)}
           onDelete={() => onDelete(menuMessage)}
+          onSelect={() => onSelect(menuMessage)}
           onNotice={onNotice}
         />
       ) : null}

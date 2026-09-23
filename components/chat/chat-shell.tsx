@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PAGE_SIZE } from "@/lib/chat/constants";
+import { CHAT_BUCKET, PAGE_SIZE } from "@/lib/chat/constants";
 import type { BackgroundProposal, Message, MessageRead } from "@/lib/chat/types";
 import { hydrateMessages, mergeRead, normalizeMessage, sortMessages, upsertMessage } from "@/lib/chat/messages";
 import { useConversationContext } from "@/lib/chat/use-conversation-context";
@@ -16,13 +16,16 @@ import MessageComposer, { type OutgoingMessage } from "./message-composer";
 import MediaViewer from "./media-viewer";
 import ChatSettings from "./chat-settings";
 import ContactDetails from "./contact-details";
+import MessageSelectionBar from "./message-selection-bar";
+import { useCalls } from "@/components/calls/call-provider";
+import { pauseActiveMedia } from "@/lib/media/playback";
 
 type Props = { userId: string; identity: UserIdentity };
 type ViewerState = { src: string; name: string; type: "image" | "video" } | null;
 type LocalBackground = { id: string; at: number } | null;
 type SharedBackground = { id: string | null; at: number };
 
-const MEDIA_TYPES = new Set(["image", "video", "voice"]);
+const MEDIA_TYPES = new Set(["image", "video", "video_note", "voice"]);
 const ENRICH_RETRY_MS = [800, 2000, 4500];
 
 function readLocalBackground(identity: UserIdentity): LocalBackground {
@@ -37,6 +40,7 @@ function readLocalBackground(identity: UserIdentity): LocalBackground {
 }
 
 export default function ChatShell({ userId, identity }: Props) {
+  const { history: callHistory, clearCompletedHistory } = useCalls();
   const supabase = useMemo(() => createClient(), []);
   const context = useConversationContext(supabase, userId);
   const { conversationId, me, other, nickname, applyProfile, setNickname } = context;
@@ -54,6 +58,11 @@ export default function ChatShell({ userId, identity }: Props) {
   const [proposal, setProposal] = useState<BackgroundProposal | null>(null);
   const [outgoing, setOutgoing] = useState<BackgroundProposal | null>(null);
   const [notice, setNotice] = useState("");
+  const [historyReset, setHistoryReset] = useState(0);
+  const [pendingCleanup, setPendingCleanup] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectionConfirming, setSelectionConfirming] = useState(false);
+  const [selectionDeleting, setSelectionDeleting] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   const readSent = useRef(new Set<string>());
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -67,6 +76,70 @@ export default function ChatShell({ userId, identity }: Props) {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(""), 3200);
   }, []);
+
+  const resetHistoryUi = useCallback(() => {
+    pauseActiveMedia();
+    setMessages([]); messagesRef.current = [];
+    setReplyTo(null); setViewer(null); setHasOlder(false); setOlderLoading(false);
+    setSelectedIds(new Set()); setSelectionConfirming(false); setSelectionDeleting(false);
+    readSent.current.clear(); clearCompletedHistory();
+    setHistoryReset((value) => value + 1);
+  }, [clearCompletedHistory]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSelectedIds(new Set());
+      setSelectionConfirming(false);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [conversationId]);
+
+  const cleanupOwnMedia = useCallback(async () => {
+    if (!conversationId) return true;
+    const jobs = await supabase.from("message_media_cleanup_jobs").select("id,storage_path").eq("conversation_id", conversationId).eq("owner_id", userId).limit(1000);
+    if (jobs.error) { logSupabaseError("[chat-clear] load cleanup jobs", jobs.error); setPendingCleanup(true); return false; }
+    const rows = (jobs.data ?? []) as Array<{ id: string; storage_path: string }>;
+    let failed = false;
+    for (let index = 0; index < rows.length; index += 100) {
+      const batch = rows.slice(index, index + 100).filter((row) => row.storage_path.startsWith(`${conversationId}/${userId}/`) && !row.storage_path.includes("/stories/"));
+      if (!batch.length) { failed = true; continue; }
+      const removed = await supabase.storage.from(CHAT_BUCKET).remove(batch.map((row) => row.storage_path));
+      if (removed.error) { console.error("[chat-clear] storage cleanup", { message: removed.error.message, count: batch.length }); failed = true; continue; }
+      const deleted = await supabase.from("message_media_cleanup_jobs").delete().in("id", batch.map((row) => row.id));
+      if (deleted.error) { logSupabaseError("[chat-clear] remove cleanup jobs", deleted.error); failed = true; }
+    }
+    setPendingCleanup(failed);
+    return !failed;
+  }, [conversationId, supabase, userId]);
+
+  const retryMediaCleanup = useCallback(async () => {
+    if (await cleanupOwnMedia()) flash("Media fayllari tozalandi");
+    else flash("Ba'zi media fayllarini tozalab bo'lmadi");
+  }, [cleanupOwnMedia, flash]);
+
+  useEffect(() => { if (!conversationId) return; const timer=window.setTimeout(()=>void cleanupOwnMedia(),0);return()=>clearTimeout(timer); }, [cleanupOwnMedia, conversationId]);
+
+  const clearHistory = useCallback(async () => {
+    if (!conversationId) return false;
+
+    const { data: userData, error: sessionError } = await supabase.auth.getUser();
+    if (sessionError || !userData.user || userData.user.id !== userId) {
+      logSupabaseError("[chat-clear] verify session", sessionError);
+      flash("Sessiya tugagan. Qayta kiring.");
+      return false;
+    }
+
+    const { data, error } = await supabase.rpc("clear_conversation_history", { p_conversation_id: conversationId });
+    if (error || !data) {
+      logSupabaseError("[chat-clear] clear history", error);
+      flash("Chatni tozalab bo'lmadi. Qayta urinib ko'ring.");
+      return false;
+    }
+    resetHistoryUi();
+    const mediaClean = await cleanupOwnMedia();
+    flash(mediaClean ? "Chat tozalandi" : "Chat tozalandi, ayrim media fayllari kutilmoqda");
+    return true;
+  }, [cleanupOwnMedia, conversationId, flash, resetHistoryUi, supabase, userId]);
 
   /** Enrichment runs AFTER the message is already on screen, and merges by id. */
   const enrich = useCallback(async (message: Message) => {
@@ -85,6 +158,12 @@ export default function ChatShell({ userId, identity }: Props) {
 
   const receiveMessage = useCallback((incoming: Message) => {
     if (incoming.conversation_id !== conversationId) return;
+    if (incoming.deleted_at) {
+      setSelectedIds((current) => {
+        if (!current.has(incoming.id)) return current;
+        const next = new Set(current); next.delete(incoming.id); return next;
+      });
+    }
     setMessages((current) => {
       const index = current.findIndex((item) => item.id === incoming.id);
       if (index === -1) return [...current, incoming].sort(sortMessages);
@@ -101,6 +180,7 @@ export default function ChatShell({ userId, identity }: Props) {
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .limit(PAGE_SIZE);
     if (error) {
       logSupabaseError("[chat] load messages", error);
@@ -164,7 +244,7 @@ export default function ChatShell({ userId, identity }: Props) {
         return next.map((item) => item.reply_to?.id === incoming.id ? { ...item, reply_to: { ...item.reply_to, ...incoming } } : item);
       });
     },
-    onMessageDelete: (id) => setMessages((current) => current.filter((item) => item.id !== id)),
+    onMessageDeleteBatch: (ids) => { const removed=new Set(ids);setMessages((current)=>current.filter((item)=>!removed.has(item.id))); },
     onRead: (read: MessageRead) => setMessages((current) => mergeRead(current, read)),
     // Catch up on anything missed while the socket was down or the phone was asleep.
     onResync: () => {
@@ -188,6 +268,7 @@ export default function ChatShell({ userId, identity }: Props) {
       }
     },
     onSettings: (row) => setSharedBackground({ id: (row.shared_background as string | null) ?? null, at: new Date(String(row.updated_at ?? Date.now())).getTime() }),
+    onHistoryClear: () => { resetHistoryUi(); void cleanupOwnMedia(); },
   });
 
   // Read receipts: only while the chat is actually visible.
@@ -226,8 +307,9 @@ export default function ChatShell({ userId, identity }: Props) {
       .from("messages")
       .select("*")
       .eq("conversation_id", conversationId)
-      .lt("created_at", first.created_at)
+      .or(`created_at.lt.${first.created_at},and(created_at.eq.${first.created_at},id.lt.${first.id})`)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .limit(PAGE_SIZE);
     if (error) logSupabaseError("[chat] load older", error);
     else {
@@ -238,6 +320,33 @@ export default function ChatShell({ userId, identity }: Props) {
     }
     setOlderLoading(false);
   }
+
+  const loadReplyContext = useCallback(async (messageId: string) => {
+    if (messagesRef.current.some((message) => message.id === messageId)) return;
+    const targetResult = await supabase.from("messages").select("*").eq("conversation_id", conversationId).eq("id", messageId).maybeSingle();
+    if (targetResult.error || !targetResult.data) {
+      logSupabaseError("[chat] load reply target", targetResult.error);
+      flash("Asl xabar topilmadi");
+      return;
+    }
+    const target = normalizeMessage(targetResult.data as Record<string, unknown>);
+    const [before, after] = await Promise.all([
+      supabase.from("messages").select("*").eq("conversation_id", conversationId)
+        .or(`created_at.lt.${target.created_at},and(created_at.eq.${target.created_at},id.lte.${target.id})`)
+        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(15),
+      supabase.from("messages").select("*").eq("conversation_id", conversationId)
+        .or(`created_at.gt.${target.created_at},and(created_at.eq.${target.created_at},id.gte.${target.id})`)
+        .order("created_at", { ascending: true }).order("id", { ascending: true }).limit(15),
+    ]);
+    if (before.error || after.error) {
+      logSupabaseError("[chat] load reply context", before.error ?? after.error);
+      return flash("Asl xabarni yuklab bo'lmadi");
+    }
+    const rows = [...(before.data ?? []), targetResult.data, ...(after.data ?? [])]
+      .map((row) => normalizeMessage(row as Record<string, unknown>));
+    const hydrated = await hydrateMessages(supabase, rows);
+    setMessages((current) => hydrated.reduce(upsertMessage, current));
+  }, [conversationId, flash, supabase]);
 
   /** Optimistic send: the client-generated id is the dedupe key for the realtime echo. */
   const sendMessage = useCallback(async (outgoingMessage: OutgoingMessage) => {
@@ -281,6 +390,53 @@ export default function ChatShell({ userId, identity }: Props) {
       setMessages((current) => upsertMessage(current, { ...message, deleted_at: null }));
       flash("Xabarni o'chirib bo'lmadi");
     }
+  }
+
+  function toggleMessageSelection(message: Message) {
+    if (message.sender_id !== userId || message.type === "system" || message.deleted_at || message.pending) return;
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) next.delete(message.id);
+      else next.add(message.id);
+      return next;
+    });
+    setSelectionConfirming(false);
+  }
+
+  function exitSelection() {
+    if (selectionDeleting) return;
+    setSelectedIds(new Set());
+    setSelectionConfirming(false);
+  }
+
+  async function deleteSelectedMessages() {
+    if (selectionDeleting || !selectedIds.size) return;
+    const selected = messages.filter((message) => selectedIds.has(message.id) && message.sender_id === userId && !message.deleted_at && !message.pending && message.type !== "system");
+    if (!selected.length) return exitSelection();
+
+    setSelectionDeleting(true);
+    const deletedAt = new Date().toISOString();
+    const ids = selected.map((message) => message.id);
+    setMessages((current) => current.map((message) => selectedIds.has(message.id) ? { ...message, deleted_at: deletedAt } : message));
+    const deleted = new Set<string>();
+    for (let index = 0; index < ids.length; index += 100) {
+      const batch = ids.slice(index, index + 100);
+      const { data, error } = await supabase.from("messages").update({ deleted_at: deletedAt }).eq("sender_id", userId).in("id", batch).is("deleted_at", null).select("id");
+      if (error) logSupabaseError("[chat] delete selected messages", error);
+      else (data ?? []).forEach((row) => deleted.add(row.id));
+    }
+    const failed = ids.filter((id) => !deleted.has(id));
+    if (failed.length) {
+      const failedSet = new Set(failed);
+      setMessages((current) => current.map((message) => failedSet.has(message.id) ? { ...message, deleted_at: null } : message));
+      setSelectedIds(failedSet);
+      setSelectionDeleting(false);
+      setSelectionConfirming(false);
+      flash("Ba'zi xabarlarni o'chirib bo'lmadi.");
+      return;
+    }
+    setSelectionDeleting(false);
+    exitSelection();
   }
 
   async function saveNickname(value: string) {
@@ -343,10 +499,25 @@ export default function ChatShell({ userId, identity }: Props) {
   const backgroundCss = wallpaperCss(activeBackground);
   const otherName = nickname || other?.display_name || "Suhbatdosh";
   const profiles = { [userId]: me, ...(other ? { [other.id]: other } : {}) };
+  const callMessages = callHistory.map((call): Message => {
+    const duration = call.answered_at && call.ended_at ? Math.max(0, Math.round((new Date(call.ended_at).getTime() - new Date(call.answered_at).getTime()) / 1000)) : 0;
+    const durationLabel = duration ? ` · ${Math.floor(duration / 60)} daqiqa ${duration % 60} soniya` : "";
+    const statusLabel = call.status === "missed" ? "Javobsiz qo'ng'iroq" : call.status === "declined" ? "Rad etilgan qo'ng'iroq" : call.status === "cancelled" ? "Bekor qilingan qo'ng'iroq" : call.type === "video" ? "Video qo'ng'iroq" : "Audio qo'ng'iroq";
+    return { id: `call-${call.id}`, conversation_id: call.conversation_id, sender_id: call.caller_id, type: "system", content: `${statusLabel}${durationLabel}`, reply_to_id: null, created_at: call.created_at, updated_at: call.updated_at, edited_at: null, deleted_at: null };
+  });
+  const timeline = [...messages, ...callMessages].sort(sortMessages);
 
   return (
     <main className="chat-app relative mx-auto flex h-[100dvh] max-w-3xl flex-col overflow-hidden shadow-[var(--shadow)]" style={backgroundCss ? { background: backgroundCss } : undefined}>
-      <ChatHeader
+      {selectedIds.size ? <MessageSelectionBar
+        count={selectedIds.size}
+        confirming={selectionConfirming}
+        deleting={selectionDeleting}
+        onBack={exitSelection}
+        onRequestDelete={() => setSelectionConfirming(true)}
+        onCancelDelete={() => setSelectionConfirming(false)}
+        onConfirmDelete={() => void deleteSelectedMessages()}
+      /> : <ChatHeader
         other={other}
         name={otherName}
         online={realtime.online}
@@ -354,7 +525,7 @@ export default function ChatShell({ userId, identity }: Props) {
         status={realtime.status}
         onDetails={() => setDetailsOpen(true)}
         onSettings={() => setSettingsOpen(true)}
-      />
+      />}
       {context.state === "error" || context.state === "empty" ? (
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="font-semibold">{context.state === "empty" ? "Suhbat topilmadi" : "Suhbatni yuklab bo'lmadi"}</p>
@@ -362,19 +533,23 @@ export default function ChatShell({ userId, identity }: Props) {
         </div>
       ) : (
         <MessageList
+          key={`history-${historyReset}`}
           userId={userId}
           me={me}
           other={other}
           otherName={otherName}
-          messages={messages}
+          messages={timeline}
           loading={loading}
           loadError={loadError}
           onRetryLoad={() => void retryLoad()}
           olderLoading={olderLoading}
           hasOlder={hasOlder}
           onLoadOlder={loadOlder}
+          onNavigateReply={loadReplyContext}
           onReply={setReplyTo}
           onDelete={deleteMessage}
+          selectedIds={selectedIds}
+          onSelect={toggleMessageSelection}
           onRetry={(message) => void retrySend(message)}
           onNotice={flash}
           onOpenMedia={setViewer}
@@ -389,6 +564,7 @@ export default function ChatShell({ userId, identity }: Props) {
         </div>
       ) : null}
       <MessageComposer
+        key={`composer-${historyReset}`}
         userId={userId}
         conversationId={conversationId}
         replyTo={replyTo}
@@ -418,7 +594,7 @@ export default function ChatShell({ userId, identity }: Props) {
           </section>
         </div>
       ) : null}
-      {settingsOpen ? <ChatSettings selected={activeBackground} onApply={applyLocalBackground} onPropose={proposeBackground} onClose={() => setSettingsOpen(false)} /> : null}
+      {settingsOpen ? <ChatSettings selected={activeBackground} onApply={applyLocalBackground} onPropose={proposeBackground} onClear={clearHistory} pendingCleanup={pendingCleanup} onRetryCleanup={retryMediaCleanup} onClose={() => setSettingsOpen(false)} /> : null}
       {detailsOpen ? <ContactDetails profile={other} name={otherName} online={realtime.online} nickname={nickname} onSaveNickname={saveNickname} onClose={() => setDetailsOpen(false)} /> : null}
     </main>
   );

@@ -9,12 +9,13 @@ export type SupabaseErrorLike = {
 // Always log the four diagnostic fields explicitly. Never pass tokens here.
 export function logSupabaseError(scope: string, error: SupabaseErrorLike | null | undefined) {
   if (!error) return;
-  console.error(scope, {
+  console.error(`${scope}: ${JSON.stringify({
     code: error.code ?? null,
-    message: error.message ?? null,
+    message: error.message ?? String(error),
     details: error.details ?? null,
     hint: error.hint ?? null,
-  });
+    name: error instanceof Error ? error.name : null,
+  })}`);
 }
 
 // Table/column missing from the schema cache: the migration that creates it has not been applied.

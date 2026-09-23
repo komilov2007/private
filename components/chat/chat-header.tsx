@@ -1,9 +1,10 @@
-import { ChevronLeft, Palette } from "lucide-react";
+import { ChevronLeft, MoreVertical, Phone, Video } from "lucide-react";
 import Link from "next/link";
 import Avatar from "@/components/app/avatar";
 import type { Profile } from "@/lib/chat/types";
 import { lastSeenLabel } from "@/lib/chat/helpers";
 import type { HubStatus } from "@/lib/realtime/conversation-hub";
+import { useCalls } from "@/components/calls/call-provider";
 
 type Props = {
   other: Profile | null;
@@ -16,6 +17,7 @@ type Props = {
 };
 
 export default function ChatHeader({ other, name, online, typing, status, onDetails, onSettings }: Props) {
+  const { startCall, activeCall, canCall } = useCalls();
   const line = typing
     ? "yozmoqda"
     : status === "reconnecting" || status === "error"
@@ -41,7 +43,9 @@ export default function ChatHeader({ other, name, online, typing, status, onDeta
           </span>
         </span>
       </button>
-      <button type="button" onClick={onSettings} aria-label="Chat foni va ko'rinish" className="icon-button"><Palette size={20} /></button>
+      <button type="button" disabled={!canCall || !other || Boolean(activeCall)} onClick={() => void startCall("audio")} aria-label="Audio qo'ng'iroq" className="icon-button"><Phone size={19} /></button>
+      <button type="button" disabled={!canCall || !other || Boolean(activeCall)} onClick={() => void startCall("video")} aria-label="Video qo'ng'iroq" className="icon-button"><Video size={20} /></button>
+      <button type="button" onClick={onSettings} aria-label="Chat parametrlari" className="icon-button"><MoreVertical size={20} /></button>
     </header>
   );
 }

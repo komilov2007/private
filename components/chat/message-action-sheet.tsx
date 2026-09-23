@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download, Reply, Share2, Trash2 } from "lucide-react";
+import { CheckSquare, Copy, Download, Reply, Share2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Message } from "@/lib/chat/types";
@@ -13,10 +13,11 @@ type Props = {
   onClose: () => void;
   onReply: () => void;
   onDelete: () => void;
+  onSelect: () => void;
   onNotice: (text: string) => void;
 };
 
-type Action = { id: "reply" | "copy" | "download" | "share" | "delete"; label: string; icon: typeof Reply; danger?: boolean; href?: string; download?: string };
+type Action = { id: "reply" | "copy" | "download" | "share" | "select" | "delete"; label: string; icon: typeof Reply; danger?: boolean; href?: string; download?: string };
 
 const CLOSE_MS = 180;
 const DRAG_CLOSE_PX = 90;
@@ -36,7 +37,7 @@ function canShareFiles(mime: string) {
   }
 }
 
-export default function MessageActionSheet({ message, mine, senderName, onClose, onReply, onDelete, onNotice }: Props) {
+export default function MessageActionSheet({ message, mine, senderName, onClose, onReply, onDelete, onSelect, onNotice }: Props) {
   const [closing, setClosing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [drag, setDrag] = useState(0);
@@ -91,11 +92,13 @@ export default function MessageActionSheet({ message, mine, senderName, onClose,
   if (text) actions.push({ id: "copy", label: "Nusxalash", icon: Copy });
   if (isMedia && attachment?.signedUrl) actions.push({ id: "download", label: "Yuklab olish", icon: Download, href: attachment.signedUrl, download: attachment.file_name ?? "media" });
   if (shareText || shareMedia) actions.push({ id: "share", label: "Ulashish", icon: Share2 });
+  if (mine) actions.push({ id: "select", label: "Tanlash", icon: CheckSquare });
   if (mine) actions.push({ id: "delete", label: confirmDelete ? "Ha, o'chirish" : "O'chirish", icon: Trash2, danger: true });
 
   async function runAction(id: Action["id"]) {
     if (id === "reply") return close(onReply);
     if (id === "download") return close();
+    if (id === "select") return close(onSelect);
     if (id === "delete") return confirmDelete ? close(onDelete) : setConfirmDelete(true);
     if (id === "copy") {
       try {

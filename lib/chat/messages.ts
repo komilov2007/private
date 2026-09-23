@@ -129,6 +129,7 @@ export function messagePreview(message: Message | null) {
   switch (message.type) {
     case "image": return "📷 Rasm";
     case "video": return "🎬 Video";
+    case "video_note": return "Video xabar";
     case "voice": return "🎤 Ovozli xabar";
     case "sticker": return "✨ Stiker";
     default: return message.content ?? "";

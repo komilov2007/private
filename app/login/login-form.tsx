@@ -1,11 +1,12 @@
 "use client";
 
 import { Eye, EyeOff, LockKeyhole, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginForm() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const submitting = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -14,17 +15,29 @@ export default function LoginForm() {
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError("");
     const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError || !data.session) {
+      submitting.current = false;
       setLoading(false);
       setError("Kirishda xatolik yuz berdi");
       return;
     }
 
-    // Start a fresh request so the server sees the cookies written by Supabase.
-    window.location.replace("/");
+    // Read through the SSR browser client's cookie-backed storage before making a
+    // fresh document request. This keeps the server guard and browser session aligned.
+    const { data: persisted, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || persisted.session?.user.id !== data.session.user.id) {
+      submitting.current = false;
+      setLoading(false);
+      setError("Sessiyani saqlab bo'lmadi. Qayta urinib ko'ring");
+      return;
+    }
+
+    window.location.replace(new URL("/", window.location.origin).toString());
   }
 
   return (

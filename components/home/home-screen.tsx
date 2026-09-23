@@ -74,13 +74,14 @@ export default function HomeScreen({ userId, identity }: { userId: string; ident
       setSummary((current) => (current?.last?.id === message.id ? { ...current, last: { ...current.last, ...message } } : current));
       if (message.deleted_at) scheduleReload();
     },
-    onMessageDelete: scheduleReload,
+    onMessageDeleteBatch: scheduleReload,
     onRead: (read) => {
       if (read.user_id === userId) scheduleReload();
       else setSummary((current) => (current?.last?.id === read.message_id ? { ...current, lastRead: true } : current));
     },
     onResync: scheduleReload,
     onProfile: (row) => void applyProfile(row),
+    onHistoryClear: () => setSummary({ last: null, unread: 0, lastRead: false }),
   });
 
   const firstName = me?.display_name?.split(" ")[0] ?? "";

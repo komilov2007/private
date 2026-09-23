@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import ThemeProvider from "@/components/app/theme-provider";
+import AuthenticatedApp from "@/components/app/authenticated-app";
 import HomeScreen from "@/components/home/home-screen";
 import { getUserIdentity } from "@/lib/identity";
 import { createClient } from "@/lib/supabase/server";
@@ -13,5 +13,5 @@ export default async function HomePage() {
   if (!user) redirect("/login");
 
   const identity = getUserIdentity(user.email);
-  return <ThemeProvider identity={identity}><HomeScreen userId={user.id} identity={identity} /></ThemeProvider>;
+  return <AuthenticatedApp userId={user.id} identity={identity}><HomeScreen userId={user.id} identity={identity} /></AuthenticatedApp>;
 }
